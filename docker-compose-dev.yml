@@ -1,0 +1,127 @@
+version: '3'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./build/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+    env_file:
+      - ./.env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFINITIONS_FILE: /etc/rabbitmq/definitions.json
+    restart: always
+
+  grafana:
+    image: grafana/grafana:8.3.4
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./build/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/rabbitmq.yaml
+      - ./build/grafana/datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yaml
+      - ./build/grafana/dashboards:/dashboards
+    environment:
+      GF_INSTALL_PLUGINS: "flant-statusmap-panel,grafana-piechart-panel"
+
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    depends_on:
+      - app
+      - rabbitmq-exporter
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./build/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+
+  rabbitmq-exporter:
+    image: kbudde/rabbitmq-exporter
+    env_file:
+      - ./.env
+    environment:
+      RABBIT_URL: http://rabbitmq:15672
+      RABBIT_USER: ${RABBITMQ_USER}
+      RABBIT_PASSWORD: ${RABBITMQ_PASSWORD}
+      PUBLISH_PORT: 9419
+      OUTPUT_FORMAT: JSON
+      RABBIT_CAPABILITIES: no_sort,bert
+    ports:
+      - "9419:9419"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+  
+  node-exporter:
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    expose:
+      - 9100
+    image: prom/node-exporter:v1.2.0
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+  cadvisor:
+    expose:
+      - 8080
+    image: google/cadvisor:v0.33.0
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.59
+    ports:
+      - "6831:6831/udp"    # OTLP/Jaeger Thrift (UDP)
+      - "4317:4317"        # OTLP/gRPC
+      - "16686:16686"      # UI
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      COLLECTOR_OTLP_GRPC_PORT: 4317
+      COLLECTOR_OTLP_HTTP_PORT: 4318   # OTLP/HTTP
+
+  mock-producer:
+    build:
+      context: .
+      dockerfile: build/mock-producer/Dockerfile
+    depends_on:
+      rabbitmq:
+          condition: service_healthy
+    env_file:
+      - ./.env
+    restart: unless-stopped
+
+  app:
+    image: recomendation-service
+    depends_on:
+      rabbitmq:
+          condition: service_healthy
+      mock-producer:
+          condition: service_started
+    ports:
+      - "2112:2112"
+    env_file:
+      - ./.env
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:

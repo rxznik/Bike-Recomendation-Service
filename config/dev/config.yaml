@@ -1,0 +1,7 @@
+env: "dev"
+broker_type: "rabbitmq"
+http_client_timeout: "5s"
+consumer:
+  queue_name: "analytics"
+producer:
+  queue_name: "recomendations"

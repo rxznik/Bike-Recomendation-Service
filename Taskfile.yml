@@ -1,0 +1,63 @@
+version: '3'
+
+tasks:
+  
+  build-image-app:
+    cmds:
+      - docker build -t recomendation-service -f ./build/app/Dockerfile .
+    silent: true
+
+  run-app:
+    cmds:
+      - go run ./cmd/app/main.go
+    silent: true
+
+  run-test:
+    cmds:
+      - go test -v ./internal/...
+    silent: true
+
+  build-mp:
+    cmds:
+      - go build -ldflags="-s -w" -o ./bin/mock-producer ./cmd/mock-producer/main.go
+    silent: true
+  
+  run-mp:
+    deps: [ build-mp ]
+    cmds:
+      - ./bin/mock-producer
+    silent: true
+
+  dev-compose-up:
+    cmds:
+      - docker compose -f docker-compose-dev.yml build
+      - docker compose -f docker-compose-dev.yml up {{.CLI_ARGS}}
+    silent: true
+
+  dev-compose-down:
+    cmds:  
+      - docker compose down
+    silent: true
+
+  dev-compose-slim-up:
+    cmds:
+      - docker compose -f docker-compose-dev-slim.yml build
+      - docker compose -f docker-compose-dev-slim.yml up {{.CLI_ARGS}}
+    silent: true
+
+  dev-compose-slim-down:
+    cmds:
+      - docker compose -f docker-compose-dev-slim.yml down
+    silent: true
+
+  add-cmt:
+    cmds:
+      - git add --all
+      - git commit -m "{{.CLI_ARGS}}""
+    silent: true
+  
+  add-cmt-push:
+    deps: [ add-cmt ]
+    cmds:
+      - git push
+    silent: true
